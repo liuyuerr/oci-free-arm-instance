@@ -6,19 +6,23 @@ on:
   workflow_dispatch:
 
 env:
+  SUPPRESS_LABEL_WARNING: true
+
+  OCI_CLI_REGION: "ap-singapore-1"
+  AD_NAME: "UEPz:AP-SINGAPORE-1-AD-1"
+  IMAGE_ID: "ocid1.image.oc1.ap-singapore-1.aaaaaaaaaynzciw3t7fypsdqahuupzsvbv5ewlubquu3ksfqugxchksgxm4q"
+  SUBNET_ID: "ocid1.subnet.oc1.ap-singapore-1.aaaaaaa7sfcp4k67ma7xemmkjfu56g7ojn2ckjrf1zlb6unyb3rscsjxltna"
+
   COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
-  IMAGE_ID: ${{ secrets.IMAGE_ID }}
-  SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
-  AD_NAME: ${{ secrets.AD_NAME }}
-  OCI_CLI_REGION: ${{ secrets.OCI_CLI_REGION }}
   OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
   OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
   OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
   OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
 
 jobs:
-  create-vm:
+  build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Cache pip packages
         uses: actions/cache@v4
@@ -30,26 +34,23 @@ jobs:
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Setup OCI CLI and try to create VM
-        id: create_vm
-        continue-on-error: true
         run: |
           set -o pipefail
 
           pip install --user oci-cli
 
-          mkdir -p ~/.oci
-          printf '%s\n' "${{ secrets.OCI_CLI_KEY_CONTENT }}" > ~/.oci/oci_api_key.pem
-          chmod 600 ~/.oci/oci_api_key.pem
+          mkdir -p /home/runner/.oci
 
-          cat > ~/.oci/config <<EOF
-          [DEFAULT]
-          user=${{ secrets.OCI_CLI_USER }}
-          tenancy=${{ secrets.OCI_CLI_TENANCY }}
-          fingerprint=${{ secrets.OCI_CLI_FINGERPRINT }}
-          key_file=~/.oci/oci_api_key.pem
-          region=${{ secrets.OCI_CLI_REGION }}
-          EOF
-          chmod 600 ~/.oci/config
+          printf '%s\n' "${{ secrets.OCI_CLI_KEY_CONTENT }}" > /home/runner/.oci/oci_api_key.pem
+          chmod 600 /home/runner/.oci/oci_api_key.pem
+
+          echo "[DEFAULT]" > /home/runner/.oci/config
+          echo "user=${{ secrets.OCI_CLI_USER }}" >> /home/runner/.oci/config
+          echo "tenancy=${{ secrets.OCI_CLI_TENANCY }}" >> /home/runner/.oci/config
+          echo "fingerprint=${{ secrets.OCI_CLI_FINGERPRINT }}" >> /home/runner/.oci/config
+          echo "key_file=/home/runner/.oci/oci_api_key.pem" >> /home/runner/.oci/config
+          echo "region=${{ env.OCI_CLI_REGION }}" >> /home/runner/.oci/config
+          chmod 600 /home/runner/.oci/config
 
           printf '%s\n' "${{ secrets.SSH_PUBLIC_KEY }}" > /home/runner/my_ssh_key.pub
 
@@ -57,42 +58,23 @@ jobs:
             --compartment-id "$COMPARTMENT_ID" \
             --availability-domain "$AD_NAME" \
             --shape "VM.Standard.A1.Flex" \
-            --shape-config '{"ocpus":4,"memoryInGBs":24}' \
+            --shape-config '{"ocpus":2,"memoryInGBs":12}' \
             --subnet-id "$SUBNET_ID" \
             --image-id "$IMAGE_ID" \
             --ssh-authorized-keys-file "/home/runner/my_ssh_key.pub" \
             --assign-public-ip true \
             --display-name "oracle-a1-singapore" \
-            --boot-volume-size-in-gbs 100 \
-            2>&1 || true)
+            --boot-volume-size-in-gbs 50 2>&1 || true)
 
           echo "$OCI_OUTPUT"
 
-          echo "log_data<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$OCI_OUTPUT" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
           if echo "$OCI_OUTPUT" | grep -q '"lifecycle-state": "PROVISIONING"'; then
-            echo "Success: instance is provisioning."
+            echo "SUCCESS: VM is being created. Disable this workflow after confirming the instance exists."
             exit 0
+          elif echo "$OCI_OUTPUT" | grep -q 'Out of host capacity'; then
+            echo "Capacity unavailable. This is expected; the workflow will retry on the next schedule."
+            exit 0
+          else
+            echo "Real error detected."
+            exit 1
           fi
-
-          echo "Instance not created."
-          exit 1
-
-      - name: Send Discord Notification
-        if: ${{ always() && secrets.DISCORD_WEBHOOK_URL != '' }}
-        uses: sarisia/actions-status-discord@v1.15.4
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          title: "OCI VM Status: ${{ steps.create_vm.outcome }}"
-          status: ${{ steps.create_vm.outcome }}
-          color: ${{ steps.create_vm.outcome == 'success' && '0x28a745' || '0xdc3545' }}
-          description: |
-            Attempt to create A1.Flex VM.
-            Status: `${{ steps.create_vm.outcome }}`
-
-            Log output:
-            ```json
-            ${{ steps.create_vm.outputs.log_data }}
-            ```
