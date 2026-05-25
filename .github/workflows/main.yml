@@ -8,12 +8,11 @@ on:
 env:
   SUPPRESS_LABEL_WARNING: true
 
-  OCI_CLI_REGION: "ap-singapore-1"
-  AD_NAME: "UEPz:AP-SINGAPORE-1-AD-1"
-  IMAGE_ID: "ocid1.image.oc1.ap-singapore-1.aaaaaaaaaynzciw3t7fypsdqahuupzsvbv5ewlubquu3ksfqugxchksgxm4q"
-  SUBNET_ID: "ocid1.subnet.oc1.ap-singapore-1.aaaaaaa7sfcp4k67ma7xemmkjfu56g7ojn2ckjrf1zlb6unyb3rscsjxltna"
-
   COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
+  IMAGE_ID: ${{ secrets.IMAGE_ID }}
+  SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
+  AD_NAME: ${{ secrets.AD_NAME }}
+  OCI_CLI_REGION: ${{ secrets.OCI_CLI_REGION }}
   OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
   OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
   OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
@@ -52,7 +51,13 @@ jobs:
           echo "region=${{ env.OCI_CLI_REGION }}" >> /home/runner/.oci/config
           chmod 600 /home/runner/.oci/config
 
-          printf '%s\n' "${{ secrets.SSH_PUBLIC_KEY }}" > /home/runner/my_ssh_key.pub
+          printf '%s\n' "${{ secrets.SSH_PUBLIC_KEY }}" | tr -d '\r' > /home/runner/my_ssh_key.pub
+          if ! grep -Eq '^ssh-rsa [A-Za-z0-9+/=]+( .*)?$' /home/runner/my_ssh_key.pub; then
+            echo "SSH_PUBLIC_KEY must be a single ssh-rsa public key line."
+            exit 1
+          fi
+
+          oci iam region list >/dev/null
 
           OCI_OUTPUT=$(oci compute instance launch \
             --compartment-id "$COMPARTMENT_ID" \
