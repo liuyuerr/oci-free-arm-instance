@@ -57,6 +57,14 @@ jobs:
             exit 1
           fi
 
+          cat > /home/runner/source-details.json <<EOF
+          {
+            "sourceType": "image",
+            "imageId": "$IMAGE_ID",
+            "bootVolumeSizeInGBs": 50
+          }
+          EOF
+
           oci iam region list >/dev/null
 
           OCI_OUTPUT=$(oci compute instance launch \
@@ -65,11 +73,10 @@ jobs:
             --shape "VM.Standard.A1.Flex" \
             --shape-config '{"ocpus":2,"memoryInGBs":12}' \
             --subnet-id "$SUBNET_ID" \
-            --image-id "$IMAGE_ID" \
+            --source-details file:///home/runner/source-details.json \
             --ssh-authorized-keys-file "/home/runner/my_ssh_key.pub" \
             --assign-public-ip true \
-            --display-name "oracle-a1-singapore" \
-            --boot-volume-size-in-gbs 50 2>&1 || true)
+            --display-name "oracle-a1-singapore" 2>&1 || true)
 
           echo "$OCI_OUTPUT"
 
