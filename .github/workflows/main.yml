@@ -69,7 +69,8 @@ jobs:
             --ssh-authorized-keys-file "/home/runner/my_ssh_key.pub" \
             --assign-public-ip true \
             --display-name "oracle-a1-singapore" \
-            --boot-volume-size-in-gbs 50 2>&1 || true)
+            --boot-volume-size-in-gbs 50 \
+            --debug 2>&1 || true)
 
           echo "$OCI_OUTPUT"
 
