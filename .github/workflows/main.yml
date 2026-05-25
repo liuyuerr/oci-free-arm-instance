@@ -83,6 +83,8 @@ jobs:
           EOF
 
           oci iam region list >/dev/null
+          echo "Accessible subnets in compartment:"
+          oci network subnet list --compartment-id "$COMPARTMENT_ID" --all --query 'data[*].{"name":"display-name","id":"id","domain":"availability-domain","public":"prohibit-public-ip-on-vnic"}' --output table || true
           oci network subnet get --subnet-id "$SUBNET_ID" >/dev/null
           oci compute image get --image-id "$IMAGE_ID" >/dev/null
 
