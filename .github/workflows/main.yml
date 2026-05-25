@@ -108,6 +108,25 @@ jobs:
           oci network subnet list --compartment-id "$COMPARTMENT_ID" --all --query 'data[*].{"name":"display-name","id":"id","domain":"availability-domain","public":"prohibit-public-ip-on-vnic"}' --output table || true
           oci network subnet get --subnet-id "$SUBNET_ID" >/dev/null
 
+          EXISTING_INSTANCE=$(oci compute instance list \
+            --compartment-id "$COMPARTMENT_ID" \
+            --display-name "oracle-a1-singapore" \
+            --lifecycle-state RUNNING \
+            --query 'data[0].id' \
+            --raw-output)
+          if [ -z "$EXISTING_INSTANCE" ] || [ "$EXISTING_INSTANCE" = "null" ]; then
+            EXISTING_INSTANCE=$(oci compute instance list \
+              --compartment-id "$COMPARTMENT_ID" \
+              --display-name "oracle-a1-singapore" \
+              --lifecycle-state PROVISIONING \
+              --query 'data[0].id' \
+              --raw-output)
+          fi
+          if [ -n "$EXISTING_INSTANCE" ] && [ "$EXISTING_INSTANCE" != "null" ]; then
+            echo "SUCCESS: Existing instance found: $EXISTING_INSTANCE. Disable this workflow after confirming the instance."
+            exit 0
+          fi
+
           if [ -n "${IMAGE_ID:-}" ]; then
             if ! oci compute image get --image-id "$IMAGE_ID" >/dev/null 2>&1; then
               echo "Configured IMAGE_ID is not accessible; selecting the latest Canonical Ubuntu 22.04 image instead."
@@ -161,6 +180,10 @@ jobs:
             echo "SUCCESS: VM is being created. Disable this workflow after confirming the instance exists."
             exit 0
           elif echo "$OCI_OUTPUT" | grep -q 'Out of host capacity'; then
+            dispatch_next_run
+            exit 0
+          elif echo "$OCI_OUTPUT" | grep -Eqi 'RequestException|timed out|TooManyRequests|Too Many Requests|status": 429|status": 500'; then
+            echo "Transient OCI error detected; retrying later."
             dispatch_next_run
             exit 0
           else
