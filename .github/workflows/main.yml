@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "8,23,38,53 * * * *"
   workflow_dispatch:
+    inputs:
+      retry_delay_seconds:
+        description: "Seconds to wait before dispatching the next retry"
+        required: false
+        default: "900"
 
 permissions:
   actions: write
@@ -15,7 +20,7 @@ concurrency:
 
 env:
   SUPPRESS_LABEL_WARNING: true
-  RETRY_DELAY_SECONDS: 900
+  RETRY_DELAY_SECONDS: ${{ github.event.inputs.retry_delay_seconds || '900' }}
   GITHUB_TOKEN: ${{ github.token }}
 
   COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
