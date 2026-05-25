@@ -16,6 +16,7 @@ concurrency:
 env:
   SUPPRESS_LABEL_WARNING: true
   RETRY_DELAY_SECONDS: 900
+  GITHUB_TOKEN: ${{ github.token }}
 
   COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
   IMAGE_ID: ${{ secrets.IMAGE_ID }}
