@@ -51,6 +51,23 @@ jobs:
           echo "region=${{ env.OCI_CLI_REGION }}" >> /home/runner/.oci/config
           chmod 600 /home/runner/.oci/config
 
+          case "$COMPARTMENT_ID" in
+            ocid1.tenancy.*|ocid1.compartment.*) ;;
+            *) echo "OCI_COMPARTMENT_ID is not a raw compartment/tenancy OCID."; exit 1 ;;
+          esac
+          case "$SUBNET_ID" in
+            ocid1.subnet.*) ;;
+            *) echo "OCI_SUBNET_ID is not a raw subnet OCID."; exit 1 ;;
+          esac
+          case "$IMAGE_ID" in
+            ocid1.image.*) ;;
+            *) echo "IMAGE_ID is not a raw image OCID."; exit 1 ;;
+          esac
+          case "$AD_NAME" in
+            *:AP-SINGAPORE-1-AD-1) ;;
+            *) echo "AD_NAME does not look like the Singapore AD name."; exit 1 ;;
+          esac
+
           printf '%s\n' "${{ secrets.SSH_PUBLIC_KEY }}" | tr -d '\r' | awk '/^ssh-rsa / { print; exit }' > /home/runner/my_ssh_key.pub
           if ! grep -Eq '^ssh-rsa [A-Za-z0-9+/=]+( .*)?$' /home/runner/my_ssh_key.pub; then
             echo "SSH_PUBLIC_KEY must be a single ssh-rsa public key line."
@@ -66,6 +83,8 @@ jobs:
           EOF
 
           oci iam region list >/dev/null
+          oci network subnet get --subnet-id "$SUBNET_ID" >/dev/null
+          oci compute image get --image-id "$IMAGE_ID" >/dev/null
 
           OCI_OUTPUT=$(oci compute instance launch \
             --compartment-id "$COMPARTMENT_ID" \
