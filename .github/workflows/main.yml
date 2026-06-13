@@ -13,6 +13,7 @@ on:
 permissions:
   actions: write
   contents: read
+  issues: write
 
 concurrency:
   group: oci-free-arm-instance
@@ -80,6 +81,48 @@ jobs:
             echo "Next retry has been dispatched."
           }
 
+          finish_success() {
+            SUCCESS_TEXT="$1"
+            INSTANCE_ID="${2:-unknown}"
+            RUN_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+            echo "SUCCESS: ${SUCCESS_TEXT}. Instance: ${INSTANCE_ID}"
+
+            SUCCESS_TEXT="$SUCCESS_TEXT" INSTANCE_ID="$INSTANCE_ID" RUN_URL="$RUN_URL" python3 - <<'PY' > /home/runner/success-issue.json
+          import json
+          import os
+
+          title = "OCI A1 instance created"
+          body = "\n".join([
+              "The OCI A1 workflow detected a created instance.",
+              "",
+              f"Status: {os.environ.get('SUCCESS_TEXT', 'success')}",
+              f"Instance: {os.environ.get('INSTANCE_ID', 'unknown')}",
+              f"Run: {os.environ.get('RUN_URL', '')}",
+              "",
+              "The workflow will now disable itself to avoid further retries.",
+          ])
+          print(json.dumps({"title": title, "body": body}))
+          PY
+
+            curl -fsSL \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues" \
+              --data @/home/runner/success-issue.json \
+              || echo "Warning: failed to create success issue."
+
+            curl -fsSL \
+              -X PUT \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/disable" \
+              || echo "Warning: failed to disable workflow automatically."
+          }
+
           case "$COMPARTMENT_ID" in
             ocid1.tenancy.*|ocid1.compartment.*) ;;
             *) echo "OCI_COMPARTMENT_ID is not a raw compartment/tenancy OCID."; exit 1 ;;
@@ -123,7 +166,7 @@ jobs:
               --raw-output)
           fi
           if [ -n "$EXISTING_INSTANCE" ] && [ "$EXISTING_INSTANCE" != "null" ]; then
-            echo "SUCCESS: Existing instance found: $EXISTING_INSTANCE. Disable this workflow after confirming the instance."
+            finish_success "Existing instance found" "$EXISTING_INSTANCE"
             exit 0
           fi
 
@@ -177,7 +220,8 @@ jobs:
           echo "$OCI_OUTPUT"
 
           if echo "$OCI_OUTPUT" | grep -q '"lifecycle-state": "PROVISIONING"'; then
-            echo "SUCCESS: VM is being created. Disable this workflow after confirming the instance exists."
+            CREATED_INSTANCE=$(printf '%s' "$OCI_OUTPUT" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data", {}).get("id", "unknown"))' 2>/dev/null || echo "unknown")
+            finish_success "VM is being created" "$CREATED_INSTANCE"
             exit 0
           elif echo "$OCI_OUTPUT" | grep -q 'Out of host capacity'; then
             dispatch_next_run
